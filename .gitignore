@@ -1,0 +1,12 @@
+node_modules/
+.test-build/
+.script/
+*.tsbuildinfo
+
+# 本地分析、设计及验证资料不公开。
+/analysis.md
+/plan.md
+.env
+.env.*
+!.env.example
+*.log
