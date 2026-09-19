@@ -2,7 +2,7 @@
 
 面向 **OpenCode v2.0.8** 的独立、只读 TUI 插件。在主会话侧栏内容之后显示当前根会话的整棵子代理树；进入子会话后，可从命令面板手动打开同一棵树。
 
-> 当前为初始开发版本：类型检查与单元测试已通过，**尚未完成真实 TUI 加载及交互验证**。不承诺其他 OpenCode 版本兼容。项目按 [MIT 许可证](LICENSE) 开源。
+> 当前版本为 **0.1.1**，提供预编译的 JavaScript 入口。类型检查、核心单元测试与发布包 mock 加载检查已通过，**尚未完成真实 TUI 加载及交互验证**。不承诺其他 OpenCode 版本兼容。项目按 [MIT 许可证](LICENSE) 开源。
 
 ## 使用方式
 
@@ -50,9 +50,11 @@ opencode plugin add "github:liantian-cn/opencode-subagent-sidebar#<完整40位�
 
 GitHub 安装在 OpenCode 自己的 npm 缓存 generation 中重新解析依赖，不使用本仓库 `package-lock.json` 作为安装根锁文件，且安装器默认关闭 audit。应对实际安装 generation 的锁文件检查依赖和审计，不能直接沿用文末本地 `npm ci` 的审计结果。可通过该命令进程的 `npm_config_registry` 环境变量指定 registry，无需修改全局 npm 配置。
 
+**0.1.1 修复了包安装时原始 TSX 触发 `Cannot find package 'react'` 的问题。** OpenTUI 0.5.10 的 Solid 转换器排除 `node_modules`，而 Git 包安装在该目录中。发布提交已携带 `dist`，无需在用户机器上执行 `prepare` 或安装 React。若此前固定了 0.1.0 的完整 SHA，更新 `main` 不会改变旧安装，需将安装引用替换为已验证的修复提交，避免同时保留两份引用。
+
 ### 本地开发与目录安装
 
-开发环境使用 Node.js 22 和 npm 10。宿主负责 TSX 编译以及 Solid/OpenTUI 运行时注入，无需安装 Bun 或额外打包。
+开发环境使用 Node.js 22 和 npm 10。Node/Babel 在发布前将 TSX 编译为 OpenTUI universal JavaScript；宿主注入共享的 Solid/OpenTUI 运行时，无需独立 Bun。宿主的 Solid TSX 转换适用于其过滤器接受的工作区源码，不应依赖它编译安装到 `node_modules` 的包。
 
 克隆仓库并安装依赖：
 
@@ -60,11 +62,23 @@ GitHub 安装在 OpenCode 自己的 npm 缓存 generation 中重新解析依赖�
 git clone https://github.com/liantian-cn/opencode-subagent-sidebar.git
 cd opencode-subagent-sidebar
 npm ci
+npm run build
 npm run check
 npm test
 ```
 
-依赖由 `package-lock.json` 锁定：`@opencode/plugin` / `@opencode/theme` 为 2.0.8，OpenTUI 为 0.5.10，Solid 为 1.9.12，TypeScript 为 5.8.2。不要强制跳过 peer 依赖检查。根目录 `tui.tsx` 是本地目录加载入口；`exports["./tui"]` 同时声明包入口。没有打包私有 Solid 副本。
+依赖由 `package-lock.json` 锁定：`@opencode/plugin` / `@opencode/theme` 为 2.0.8，OpenTUI 为 0.5.10，Solid 为 1.9.12，TypeScript 为 5.8.2。构建工具直接锁定 `@babel/core@7.29.7`、`@babel/preset-typescript@7.27.1`、`babel-preset-solid@1.9.12`。不要强制跳过 peer 依赖检查。
+
+根目录 `tui.js` 同时作为本地目录入口与 `exports["./tui"]` 的包入口，统一转发至 `dist/tui.js`。Babel 保留 `@opencode/plugin/tui`、`@opentui/solid`、`solid-js` 的裸模块导入，由宿主共享运行时解析；没有打包私有 Solid 副本。修改源码后需要重新运行 `npm run build`。
+
+#### 构建与发布包验证
+
+- `npm run build`：编译整个 `src`，生成确定性的 `dist/**/*.js`，不包含时间戳。
+- `npm run build:check`：在内存中重新编译，逐文件比较内容和文件集合；源码变更、缺失或多余产物均报错，不会自动改写产物。`npm test` 首先执行此检查。
+- `npm test`：运行核心测试、真实 `npm pack --ignore-scripts` 归档检查，以及 Node VM mock 的模块链接/声明求值测试。打包测试需要系统 `tar`（Windows 自带、Linux/macOS 常用工具）；验证资料保存在忽略的 `.script/package-verification-*` 下。
+- 包白名单只包含 `tui.js`、`dist`，以及 npm 默认包含的 `package.json`、README、LICENSE。源码、测试和构建工具留在仓库，不发布进安装包。
+
+发布前运行 `npm run build`、`npm run check`、`npm test`，将源码与最新 `dist` 一起提交，再固定该提交 SHA。安装器禁用生命周期脚本，项目不依赖 `prepare`；直接执行 `npm pack` 也不会自动构建。发布包验证把实际归档解包到含 `node_modules` 的路径，按包 `exports` 解析入口，并验证全部相对导入、external 白名单及 `Plugin.define` 的声明形状。
 
 #### 将本地目录加入全局 CLI 配置
 
@@ -101,7 +115,9 @@ npm test
 ## 实现与验证
 
 ```text
-tui.tsx                 本地目录入口
+tui.js                  本地目录及包共用入口
+dist/                   随 Git 发布的预编译 ESM
+scripts/build.mjs       Node/Babel universal 编译及新鲜度检查
 src/tui.tsx             常驻命令、侧栏与 session.panel
 src/v208.ts             2.0.8 类型、公开 API、工具关联与事件适配
 src/core/controller.ts  先订阅后快照、generation/abort、跨树生命周期
@@ -110,7 +126,7 @@ src/core/tree.ts        轮次、状态、编号、排序与内存历史
 src/core/order.ts       会话事件序列水位与有界去重
 src/core/journal.ts     加载期间未知会话事件压缩与缓冲上限
 src/core/format.ts      Unicode 字素/终端列宽截断与时长
-test/                   node:test 旁路测试，不依赖真实服务
+test/                   node:test 核心测试与实际发布包验证
 ```
 
 初始进入树、重新打开或 `server.connected` 时校准；工具关联事件按会话合并后补读。全部 HTTP 读取使用宿主 `context.client`，复用宿主 `context.data.listen` 事件流，不创建第二条 SSE。读取最多四个会话并发，不假设 `session.list` 会写入宿主缓存。权限与表单使用可取消的公开 API 快照，随后由宿主事件驱动更新；公开 pending getter 的签名也已核实。
@@ -119,7 +135,7 @@ test/                   node:test 旁路测试，不依赖真实服务
 
 加载期间未归属的事件使用压缩缓冲，最多 4096 条；超限会明确中止本次同步并显示错误/过期，而不是静默丢弃事件后显示“同步成功”。已归属会话采用事件序列水位及有界近期去重，避免去重记录随累计运行轮次无限增长。
 
-**验证边界**：类型检查和标准单元测试可以验证投影、分页、事件竞争、历史边界、切换、Unicode 及清理，但尚未运行真实 TUI 冒烟测试。终端字体的实际 emoji 宽度、面板焦点/滚动和全局本地加载仍需在用户选择的安全 TUI 环境验证。宿主公开插件接口没有即时断线状态，无法在所有断线发生的瞬间提示；重连/读取失败时进行校准和过期提示，不虚构网络状态。
+**验证边界**：类型检查和标准单元测试验证投影、分页、事件竞争、历史边界、切换、Unicode 及清理。发布包检查确认 JavaScript 可解析、没有 React/JSX runtime 引用，且包内运行文件完整；Node VM 使用显式 mock 的宿主运行时，只链接并求值插件声明，禁止调用 `setup`、渲染或真实 API。这不能替代 Bun 的 loader 链或真实宿主加载验证。尚未另开 TUI 冒烟测试；终端字体的实际 emoji 宽度、面板焦点/滚动仍待真实终端验收。宿主公开插件接口没有即时断线状态，无法在所有断线发生的瞬间提示；重连/读取失败时进行校准和过期提示，不虚构网络状态。
 
 ### 卸载与回滚
 
@@ -158,7 +174,7 @@ npm audit --omit=dev --registry=https://registry.npmjs.org
 结果仍有 **13 个受影响包条目：11 个中危、2 个低危，0 个高危/严重**。包条目包含传播影响，并非 13 个不同漏洞；该命令仍会以非零状态退出，**不能视为审计通过**。
 
 - **OpenTelemetry**：`@opentelemetry/core@2.6.1` 命中 [GHSA-8988-4f7v-96qf](https://github.com/advisories/GHSA-8988-4f7v-96qf)。相关 SDK/exporter 被 `@opencode/util@2.0.8` 精确锁定；本版本未强制覆盖其配套依赖。
-- **Babel**：`@babel/core@7.28.0` 命中 [GHSA-4x5r-pxfx-6jf8](https://github.com/advisories/GHSA-4x5r-pxfx-6jf8)，由 `@opentui/solid@0.5.10` 精确锁定。本版本未强制覆盖宿主相关转换依赖。
+- **Babel**：`@babel/core@7.28.0` 命中 [GHSA-4x5r-pxfx-6jf8](https://github.com/advisories/GHSA-4x5r-pxfx-6jf8)，由 `@opentui/solid@0.5.10` 精确锁定，位于其嵌套依赖中。本项目新增的直接构建依赖使用不在该公告受影响范围内的 `@babel/core@7.29.7`；未强制覆盖宿主相关转换依赖。0.1.1 变更后再次执行上述生产依赖审计，条目数量和严重级别保持不变。
 - `rimraf` 下的 `glob` 已在父依赖允许范围内从 `10.4.5` 更新至 `10.5.0`，不再命中本次审计报告的 [CLI 命令注入公告](https://github.com/advisories/GHSA-5j98-mcp5-4vw2)。其他 glob 副本也按各自兼容范围更新。旧 glob 主版本仍有上游弃用提示，不代表已获得长期维护保证。
 
 这些是依赖版本命中公告的结果；尚未完成实际调用路径的可利用性验证，不能断言在本插件中可利用或不可利用。当前选择保持 OpenCode v2.0.8 兼容基线并公开披露，不使用 `--force` 或未经宿主验证的 overrides。此修复针对克隆仓库后 `npm ci` 的安装方式；不能据此承诺其他分发/安装路径具有相同依赖树。安全要求不允许这些告警时，请暂缓使用。

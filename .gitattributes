@@ -1,0 +1,2 @@
+# 构建产物固定 LF，避免 Windows 检出转换导致新鲜度检查误报。
+/dist/** text eol=lf
