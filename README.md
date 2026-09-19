@@ -2,7 +2,7 @@
 
 面向 **OpenCode v2.0.8** 的独立、只读 TUI 插件。在主会话侧栏内容之后显示当前根会话的整棵子代理树；进入子会话后，可从命令面板手动打开同一棵树。
 
-> 当前版本为 **0.1.3**，提供预编译的 JavaScript 入口，仅展示已确认活跃的子代理。0.1.2 已由用户确认在真实 TUI 成功加载并显示任务；本次活跃过滤和恢复行为通过自动化验证，**尚未完成真实 TUI 交互验收**。不承诺其他 OpenCode 版本兼容。项目按 [MIT 许可证](LICENSE) 开源。
+> 当前版本为 **0.1.4**，提供预编译的 JavaScript 入口，仅展示已确认活跃的子代理，并修复消息游标分页导致持续读取失败的问题。0.1.2 已由用户确认在真实 TUI 成功加载并显示任务；本次分页修复通过真实 SDK 配合内存 HTTP fixture 验证，**尚未完成真实 TUI 交互验收**。不承诺其他 OpenCode 版本兼容。项目按 [MIT 许可证](LICENSE) 开源。
 
 ## 使用方式
 
@@ -56,6 +56,8 @@ GitHub 安装在 OpenCode 自己的 npm 缓存 generation 中重新解析依赖�
 
 **0.1.3 改为仅显示活跃项，并修复同步过期提示的恢复。** 成功、失败、普通中断立即移出列表；未知或尚未恢复的 shutdown 隐藏。局部读取失败只隐藏受影响子树，全量失败隐藏整树项；全部未解决范围成功校准后才清除提示。
 
+**0.1.4 修复消息游标分页的实际请求错误。** OpenCode 2.0.8 的消息接口禁止同时传 `cursor` 和 `order`，且任意非空页都会返回下一页游标；此前即使只有一条历史消息，也会在后续请求收到 `InvalidCursorError`，使整树持续显示过期提示。现在仅第一页传 `order: "asc"`，后续页由游标携带排序。新增真实 `@opencode/client@2.0.8` 请求级测试，使用内存 HTTP fixture 覆盖 0、1、101 条消息、额外空页、根及 child 扫描和旧错误正对照；这不等同于真实服务器或 TUI 验收。
+
 ### 本地开发与目录安装
 
 开发环境使用 Node.js 22 和 npm 10。Node/Babel 在发布前将 TSX 编译为 OpenTUI universal JavaScript；宿主注入共享的 Solid/OpenTUI 运行时，无需独立 Bun。宿主的 Solid TSX 转换适用于其过滤器接受的工作区源码，不应依赖它编译安装到 `node_modules` 的包。
@@ -80,6 +82,7 @@ npm test
 - `npm run compile`：编译整个 `src`，生成确定性的 `dist/**/*.js`，不包含时间戳。
 - `npm run compile:check`：在内存中重新编译，逐文件比较内容和文件集合；源码变更、缺失或多余产物均报错，不会自动改写产物。`npm test` 首先执行此检查。
 - `npm test`：运行核心测试、真实 `npm pack --ignore-scripts` 归档检查，以及 Node VM mock 的模块链接/声明求值测试。打包测试需要系统 `tar`（Windows 自带、Linux/macOS 常用工具）；验证资料保存在忽略的 `.script/package-verification-*` 下。
+- `test/v208-http.test.ts`：真实 SDK 使用自定义内存 `fetch`，验证消息分页 query、session/get/active/permission/form 的 HTTP envelope，以及 Controller 最终 ready。fixture 显式拒绝旧的 `cursor + order`，不联网、不启动服务或插件 setup。
 - 包白名单只包含 `tui.js`、`dist`，以及 npm 默认包含的 `package.json`、README、LICENSE。源码、测试和构建工具留在仓库，不发布进安装包。
 
 发布前运行 `npm run compile`、`npm run check`、`npm test`，将源码与最新 `dist` 一起提交，再固定该提交 SHA。项目不依赖安装时构建；直接执行 `npm pack` 也不会自动构建。发布包验证把实际归档解包到含 `node_modules` 的路径，按包 `exports` 解析入口，并验证全部相对导入、external 白名单及 `Plugin.define` 的声明形状。
@@ -145,7 +148,7 @@ test/                   node:test 核心测试与实际发布包验证
 
 加载期间未归属的事件使用压缩缓冲，最多 4096 条；超限会明确中止本次同步并显示错误/过期，而不是静默丢弃事件后显示“同步成功”。已归属会话采用事件序列水位及有界近期去重，避免去重记录随累计运行轮次无限增长。
 
-**验证边界**：类型检查和标准单元测试验证活跃投影、分页、事件竞争、失效范围恢复、删除边界、切换、Unicode 及清理。发布包检查确认 JavaScript 可解析、没有 React/JSX runtime 引用，且包内运行文件完整；发布包 Node VM 检查只链接并求值声明。另有隔离宿主桩测试调用 `setup` 验证内存 schema 和空面板关闭，不执行真实渲染或 API。自动化检查不能替代 Bun 的 loader 链或真实宿主行为。用户已确认 0.1.2 真实加载和任务显示；0.1.3 尚未另开 TUI 冒烟，终端字体的实际 emoji 宽度、面板焦点/滚动及完整恢复交互仍待验收。宿主公开插件接口没有即时断线状态，无法在所有断线发生的瞬间提示；重连/读取失败时进行校准和过期提示，不虚构网络状态。
+**验证边界**：类型检查和标准单元测试验证活跃投影、分页、事件竞争、失效范围恢复、删除边界、切换、Unicode 及清理；真实 SDK 的内存 HTTP 契约测试额外验证实际序列化请求与响应拆包，不请求真实会话。发布包检查确认 JavaScript 可解析、没有 React/JSX runtime 引用，且包内运行文件完整；发布包 Node VM 检查只链接并求值声明。另有隔离宿主桩测试调用 `setup` 验证内存 schema 和空面板关闭，不执行真实渲染或 API。自动化检查不能替代 Bun 的 loader 链或真实宿主行为。用户已确认 0.1.2 真实加载和任务显示；0.1.3 真实使用报告了持续过期提示，0.1.4 的修复尚未在真实 TUI 验收，终端字体的实际 emoji 宽度、面板焦点/滚动及完整恢复交互仍待验收。宿主公开插件接口没有即时断线状态，无法在所有断线发生的瞬间提示；重连/读取失败时进行校准和过期提示，不虚构网络状态。
 
 ### 卸载与回滚
 
@@ -165,6 +168,7 @@ test/                   node:test 核心测试与实际发布包验证
 - [v2.0.8 内置 subagent](https://github.com/anomalyco/opencode/blob/v2.0.8/packages/core/src/tool/plugin/subagent.ts)
 - [v2.0.8 执行生命周期](https://github.com/anomalyco/opencode/blob/v2.0.8/packages/core/src/session/execution.ts)
 - [v2.0.8 宿主响应式数据](https://github.com/anomalyco/opencode/blob/v2.0.8/packages/client/src/solid/data.ts)
+- [v2.0.8 消息分页 handler：cursor/order 互斥与非空页 next](https://github.com/anomalyco/opencode/blob/v2.0.8/packages/server/src/handlers/message.ts#L35-L61)
 - [v2.0.8 侧栏布局](https://github.com/anomalyco/opencode/blob/v2.0.8/packages/tui/src/routes/session/sidebar.tsx)
 
 官方在线文档可能随新版本更新；实现以已安装的 2.0.8 类型和同版本源码为准。例如真实主题字段为 `theme.text.default`，并非当前文档示例的 `theme.text.base`。

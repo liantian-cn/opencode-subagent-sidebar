@@ -93,7 +93,8 @@ export function source208(context: Context): Source {
     async active(signal) { return new Set(Object.keys(await client.session.active({ signal }))) },
     async snapshot(info, running, signal): Promise<Snapshot> {
       const messages = await pages(async cursor => {
-        const response = await reading(info.id, () => client.message.list({ sessionID: info.id, cursor, limit: 100, order: "asc" }, { signal }))
+        // 2.0.8 服务端 handlers/message.ts:35–36 禁止 cursor 与 order 同传；排序由游标续接。
+        const response = await reading(info.id, () => client.message.list({ sessionID: info.id, cursor, limit: 100, order: cursor === undefined ? "asc" : undefined }, { signal }))
         return { data: response.data, next: response.cursor.next }
       }, signal)
       // 使用可取消的公开读取；不依赖宿主缓存是否已加载此树。

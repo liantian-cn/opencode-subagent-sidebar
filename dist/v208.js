@@ -234,11 +234,12 @@ export function source208(context) {
     },
     async snapshot(info, running, signal) {
       const messages = await pages(async cursor => {
+        // 2.0.8 服务端 handlers/message.ts:35–36 禁止 cursor 与 order 同传；排序由游标续接。
         const response = await reading(info.id, () => client.message.list({
           sessionID: info.id,
           cursor,
           limit: 100,
-          order: "asc"
+          order: cursor === undefined ? "asc" : undefined
         }, {
           signal
         }));

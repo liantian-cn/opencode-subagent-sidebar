@@ -52,15 +52,16 @@ test("execution.started 用事件 created；shutdown 非终态，等待事件使
   assert.equal(event208({ ...start, type: "session.execution.interrupted", data: { sessionID: "child", reason: "user" } })?.kind, "end")
 })
 
-test("SDK 适配真实 message.list 分页并读取权限/表单；复用宿主监听且可注销", async () => {
+test("方法桩验证 message.list 分页适配及权限/表单；复用宿主监听且可注销", async () => {
   const cursors: Array<string | undefined> = []
   let handler: ((input: { details: OpenCodeEvent }) => void) | undefined
   let stopped = false
-  // 只桩本测试使用的公开只读方法，不创建服务或真实 TUI。
+  // 此处只验证方法适配；真实 SDK 请求序列化由 v208-http.test.ts 的内存 HTTP fixture 覆盖。
   const context = {
     client: {
-      message: { list: async (input: { cursor?: string }, options: { signal: AbortSignal }) => {
+      message: { list: async (input: { cursor?: string; order?: string }, options: { signal: AbortSignal }) => {
         assert.ok(options.signal)
+        assert.equal(input.order, input.cursor === undefined ? "asc" : undefined)
         cursors.push(input.cursor)
         return input.cursor
           ? { data: [assistant("latest", 30)], cursor: {} }
