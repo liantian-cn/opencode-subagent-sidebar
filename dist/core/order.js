@@ -1,4 +1,4 @@
-// 自动生成：npm run build；请修改 src 中的源码。
+// 自动生成：npm run compile；请修改 src 中的源码。
 // durable 序列属于会话；易失事件的因果关系属于请求或工具调用，不能共享时间水位。
 export class EventOrder {
   sequence = -1;

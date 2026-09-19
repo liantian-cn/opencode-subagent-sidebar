@@ -1,4 +1,4 @@
-// 自动生成：npm run build；请修改 src 中的源码。
+// 自动生成：npm run compile；请修改 src 中的源码。
 import { readTree, root } from "./reader.js";
 import { Tree } from "./tree.js";
 import { EventJournal } from "./journal.js";

@@ -1,4 +1,4 @@
-// 自动生成：npm run build；请修改 src 中的源码。
+// 自动生成：npm run compile；请修改 src 中的源码。
 import { EventOrder } from "./order.js";
 // 仅缓冲尚未归属已访问树的会话；已知会话直接投影，不复制成长事件日志。
 export class EventJournal {

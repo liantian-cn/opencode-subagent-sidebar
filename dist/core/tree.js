@@ -1,4 +1,4 @@
-// 自动生成：npm run build；请修改 src 中的源码。
+// 自动生成：npm run compile；请修改 src 中的源码。
 import { EventOrder } from "./order.js";
 const compareID = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 const terminalLabel = {

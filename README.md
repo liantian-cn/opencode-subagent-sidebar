@@ -2,7 +2,7 @@
 
 面向 **OpenCode v2.0.8** 的独立、只读 TUI 插件。在主会话侧栏内容之后显示当前根会话的整棵子代理树；进入子会话后，可从命令面板手动打开同一棵树。
 
-> 当前版本为 **0.1.1**，提供预编译的 JavaScript 入口。类型检查、核心单元测试与发布包 mock 加载检查已通过，**尚未完成真实 TUI 加载及交互验证**。不承诺其他 OpenCode 版本兼容。项目按 [MIT 许可证](LICENSE) 开源。
+> 当前版本为 **0.1.2**，提供预编译的 JavaScript 入口。类型检查、核心单元测试与发布包 mock 加载检查已通过，**尚未完成真实 TUI 加载及交互验证**。不承诺其他 OpenCode 版本兼容。项目按 [MIT 许可证](LICENSE) 开源。
 
 ## 使用方式
 
@@ -52,6 +52,8 @@ GitHub 安装在 OpenCode 自己的 npm 缓存 generation 中重新解析依赖�
 
 **0.1.1 修复了包安装时原始 TSX 触发 `Cannot find package 'react'` 的问题。** OpenTUI 0.5.10 的 Solid 转换器排除 `node_modules`，而 Git 包安装在该目录中。发布提交已携带 `dist`，无需在用户机器上执行 `prepare` 或安装 React。若此前固定了 0.1.0 的完整 SHA，更新 `main` 不会改变旧安装，需将安装引用替换为已验证的修复提交，避免同时保留两份引用。
 
+**0.1.2 移除了 Git 依赖准备安装的触发条件。** 0.1.1 的 `scripts.build` 会让 pacote 在 Git 包打包前另行启动 npm 安装，即使外层设置了 `ignoreScripts: true`；实际安装曾在此阶段报 `git dep preparation failed`。开发命令现为 `compile`，不保留 `build` 别名，也不声明准备/安装脚本或 workspaces。预编译产物、共享运行时与插件功能保持原方案。
+
 ### 本地开发与目录安装
 
 开发环境使用 Node.js 22 和 npm 10。Node/Babel 在发布前将 TSX 编译为 OpenTUI universal JavaScript；宿主注入共享的 Solid/OpenTUI 运行时，无需独立 Bun。宿主的 Solid TSX 转换适用于其过滤器接受的工作区源码，不应依赖它编译安装到 `node_modules` 的包。
@@ -62,23 +64,25 @@ GitHub 安装在 OpenCode 自己的 npm 缓存 generation 中重新解析依赖�
 git clone https://github.com/liantian-cn/opencode-subagent-sidebar.git
 cd opencode-subagent-sidebar
 npm ci
-npm run build
+npm run compile
 npm run check
 npm test
 ```
 
 依赖由 `package-lock.json` 锁定：`@opencode/plugin` / `@opencode/theme` 为 2.0.8，OpenTUI 为 0.5.10，Solid 为 1.9.12，TypeScript 为 5.8.2。构建工具直接锁定 `@babel/core@7.29.7`、`@babel/preset-typescript@7.27.1`、`babel-preset-solid@1.9.12`。不要强制跳过 peer 依赖检查。
 
-根目录 `tui.js` 同时作为本地目录入口与 `exports["./tui"]` 的包入口，统一转发至 `dist/tui.js`。Babel 保留 `@opencode/plugin/tui`、`@opentui/solid`、`solid-js` 的裸模块导入，由宿主共享运行时解析；没有打包私有 Solid 副本。修改源码后需要重新运行 `npm run build`。
+根目录 `tui.js` 同时作为本地目录入口与 `exports["./tui"]` 的包入口，统一转发至 `dist/tui.js`。Babel 保留 `@opencode/plugin/tui`、`@opentui/solid`、`solid-js` 的裸模块导入，由宿主共享运行时解析；没有打包私有 Solid 副本。修改源码后需要重新运行 `npm run compile`。
 
 #### 构建与发布包验证
 
-- `npm run build`：编译整个 `src`，生成确定性的 `dist/**/*.js`，不包含时间戳。
-- `npm run build:check`：在内存中重新编译，逐文件比较内容和文件集合；源码变更、缺失或多余产物均报错，不会自动改写产物。`npm test` 首先执行此检查。
+- `npm run compile`：编译整个 `src`，生成确定性的 `dist/**/*.js`，不包含时间戳。
+- `npm run compile:check`：在内存中重新编译，逐文件比较内容和文件集合；源码变更、缺失或多余产物均报错，不会自动改写产物。`npm test` 首先执行此检查。
 - `npm test`：运行核心测试、真实 `npm pack --ignore-scripts` 归档检查，以及 Node VM mock 的模块链接/声明求值测试。打包测试需要系统 `tar`（Windows 自带、Linux/macOS 常用工具）；验证资料保存在忽略的 `.script/package-verification-*` 下。
 - 包白名单只包含 `tui.js`、`dist`，以及 npm 默认包含的 `package.json`、README、LICENSE。源码、测试和构建工具留在仓库，不发布进安装包。
 
-发布前运行 `npm run build`、`npm run check`、`npm test`，将源码与最新 `dist` 一起提交，再固定该提交 SHA。安装器禁用生命周期脚本，项目不依赖 `prepare`；直接执行 `npm pack` 也不会自动构建。发布包验证把实际归档解包到含 `node_modules` 的路径，按包 `exports` 解析入口，并验证全部相对导入、external 白名单及 `Plugin.define` 的声明形状。
+发布前运行 `npm run compile`、`npm run check`、`npm test`，将源码与最新 `dist` 一起提交，再固定该提交 SHA。项目不依赖安装时构建；直接执行 `npm pack` 也不会自动构建。发布包验证把实际归档解包到含 `node_modules` 的路径，按包 `exports` 解析入口，并验证全部相对导入、external 白名单及 `Plugin.define` 的声明形状。
+
+Git 安装契约测试额外拒绝 manifest 中的 `postinstall`、`build`、`preinstall`、`install`、`prepack`、`prepare` 和 `workspaces`。它从 `@opencode/util` 的实际依赖解析已安装的 pacote，执行真实 GitFetcher 源码并 mock 网络、缓存目录及 npm 子进程：当前 manifest 不启动准备安装，含 `build` 或 workspaces 的正对照必须触发一次拦截。此测试不执行真实 `npm install --force`，也不等同于真实 GitHub 安装成功。
 
 #### 将本地目录加入全局 CLI 配置
 
@@ -117,7 +121,7 @@ npm test
 ```text
 tui.js                  本地目录及包共用入口
 dist/                   随 Git 发布的预编译 ESM
-scripts/build.mjs       Node/Babel universal 编译及新鲜度检查
+scripts/compile.mjs     Node/Babel universal 编译及新鲜度检查
 src/tui.tsx             常驻命令、侧栏与 session.panel
 src/v208.ts             2.0.8 类型、公开 API、工具关联与事件适配
 src/core/controller.ts  先订阅后快照、generation/abort、跨树生命周期

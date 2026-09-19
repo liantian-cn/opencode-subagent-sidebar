@@ -35,8 +35,10 @@ test("实际 npm 包只包含预编译运行文件，根入口与 exports 一致
   assert.deepEqual(packedFiles, ["LICENSE", "README.md", "package.json", "tui.js", ...outputs].sort())
   assert.deepEqual(manifest.files, ["tui.js", "dist"])
   assert.equal(manifest.exports["./tui"], "./tui.js")
-  assert.equal(manifest.scripts.prepare, undefined)
-  assert.equal(manifest.scripts.postinstall, undefined)
+  for (const name of ["postinstall", "build", "preinstall", "install", "prepack", "prepare"]) {
+    assert.equal(Object.hasOwn(manifest.scripts, name), false, `Git 包不得声明 ${name} 脚本`)
+  }
+  assert.equal(Object.hasOwn(manifest, "workspaces"), false)
   const require = createRequire(path.join(workspace, "consumer.cjs"))
   assert.equal(require.resolve(`${manifest.name}/tui`), path.join(packedRoot, "tui.js"))
   for (const file of packedFiles) {
@@ -104,10 +106,10 @@ test("构建检查拒绝陈旧或多余产物，重建结果可复现", () => {
   const fixture = path.join(workspace, "freshness")
   mkdirSync(path.join(fixture, "scripts"), { recursive: true })
   mkdirSync(path.join(fixture, "src"))
-  copyFileSync(path.join(root, "scripts", "build.mjs"), path.join(fixture, "scripts", "build.mjs"))
+  copyFileSync(path.join(root, "scripts", "compile.mjs"), path.join(fixture, "scripts", "compile.mjs"))
   const source = path.join(fixture, "src", "tui.tsx")
   writeFileSync(source, "export default () => <text>构建夹具</text>\n")
-  const run = (...args) => spawnSync(process.execPath, [path.join(fixture, "scripts", "build.mjs"), ...args], { encoding: "utf8" })
+  const run = (...args) => spawnSync(process.execPath, [path.join(fixture, "scripts", "compile.mjs"), ...args], { encoding: "utf8" })
   assert.equal(run("--check").status, 1)
   const built = run()
   assert.equal(built.status, 0, built.stderr)

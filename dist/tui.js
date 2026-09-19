@@ -1,4 +1,4 @@
-// 自动生成：npm run build；请修改 src 中的源码。
+// 自动生成：npm run compile；请修改 src 中的源码。
 import { memo as _$memo } from "@opentui/solid";
 import { createTextNode as _$createTextNode } from "@opentui/solid";
 import { insertNode as _$insertNode } from "@opentui/solid";

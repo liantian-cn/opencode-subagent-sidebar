@@ -40,7 +40,7 @@ for (const file of await files(source)) {
   })
   if (!result?.code) throw new Error(`编译没有输出：${file}`)
   // 不打包依赖；裸模块导入由宿主提供同一份 Solid/OpenTUI 运行时。
-  output.set(file.replace(/\.tsx?$/, ".js"), `// 自动生成：npm run build；请修改 src 中的源码。\n${result.code}\n`)
+  output.set(file.replace(/\.tsx?$/, ".js"), `// 自动生成：npm run compile；请修改 src 中的源码。\n${result.code}\n`)
 }
 if (!output.has("tui.js")) throw new Error("缺少 src/tui.tsx 入口")
 
@@ -51,7 +51,7 @@ if (checking) {
     if (!existing.includes(file) || await readFile(path.join(destination, file), "utf8") !== contents) differences.push(file)
   }
   for (const file of existing) if (!output.has(file)) differences.push(file)
-  if (differences.length) throw new Error(`dist 已过期或包含多余文件，请运行 npm run build：${differences.join(", ")}`)
+  if (differences.length) throw new Error(`dist 已过期或包含多余文件，请运行 npm run compile：${differences.join(", ")}`)
   console.log(`构建新鲜度检查通过：${output.size} 个 ESM 文件`)
 } else {
   // 仅在全部源码成功编译后替换项目自己的构建目录。

@@ -1,4 +1,4 @@
-// 自动生成：npm run build；请修改 src 中的源码。
+// 自动生成：npm run compile；请修改 src 中的源码。
 export async function pages(read, signal) {
   const result = [];
   const seen = new Set();

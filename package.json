@@ -1,6 +1,6 @@
 {
   "name": "opencode-subagent-sidebar",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Read-only subagent tree sidebar and panel for OpenCode v2.0.8",
   "license": "MIT",
   "repository": {
@@ -12,10 +12,10 @@
   "exports": { "./tui": "./tui.js" },
   "files": ["tui.js", "dist"],
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "build:check": "node scripts/build.mjs --check",
+    "compile": "node scripts/compile.mjs",
+    "compile:check": "node scripts/compile.mjs --check",
     "check": "tsc --noEmit",
-    "test": "npm run build:check && tsc -p tsconfig.test.json && node --experimental-vm-modules --test .test-build/test/*.test.js test/*.test.mjs"
+    "test": "npm run compile:check && tsc -p tsconfig.test.json && node --experimental-vm-modules --test .test-build/test/*.test.js test/*.test.mjs"
   },
   "dependencies": {
     "@opencode/plugin": "2.0.8",

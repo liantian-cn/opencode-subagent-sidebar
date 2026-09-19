@@ -1,4 +1,4 @@
-// 自动生成：npm run build；请修改 src 中的源码。
+// 自动生成：npm run compile；请修改 src 中的源码。
 import { pages } from "./core/reader.js";
 import { MissingSession } from "./core/types.js";
 

@@ -1,4 +1,4 @@
-// 自动生成：npm run build；请修改 src 中的源码。
+// 自动生成：npm run compile；请修改 src 中的源码。
 import stringWidth from "string-width";
 const segments = new Intl.Segmenter("zh", {
   granularity: "grapheme"
