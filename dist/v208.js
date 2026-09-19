@@ -194,31 +194,34 @@ export function event208(event) {
 }
 export function source208(context) {
   const client = context.client;
+  const reading = async (id, read) => {
+    try {
+      return await read();
+    } catch (error) {
+      if (sessionNotFound208(error, id)) throw new MissingSession(id);
+      throw error;
+    }
+  };
   const tools = new Map();
   const otherTools = new Set();
   const toolKey = (sessionID, messageID, toolID) => `${sessionID}/${messageID}/${toolID}`;
   return {
     async get(id, signal) {
-      try {
-        return info208(await client.session.get({
-          sessionID: id
-        }, {
-          signal
-        }));
-      } catch (error) {
-        if (sessionNotFound208(error, id)) throw new MissingSession(id);
-        throw error;
-      }
+      return info208(await reading(id, () => client.session.get({
+        sessionID: id
+      }, {
+        signal
+      })));
     },
     async children(id, cursor, signal) {
-      const response = await client.session.list({
+      const response = await reading(id, () => client.session.list({
         parentID: id,
         cursor,
         limit: 100,
         order: "asc"
       }, {
         signal
-      });
+      }));
       return {
         data: response.data.map(info208),
         next: response.cursor.next
@@ -231,30 +234,30 @@ export function source208(context) {
     },
     async snapshot(info, running, signal) {
       const messages = await pages(async cursor => {
-        const response = await client.message.list({
+        const response = await reading(info.id, () => client.message.list({
           sessionID: info.id,
           cursor,
           limit: 100,
           order: "asc"
         }, {
           signal
-        });
+        }));
         return {
           data: response.data,
           next: response.cursor.next
         };
       }, signal);
       // 使用可取消的公开读取；不依赖宿主缓存是否已加载此树。
-      const permissions = await client.permission.list({
+      const permissions = await reading(info.id, () => client.permission.list({
         sessionID: info.id
       }, {
         signal
-      });
-      const forms = await client.session.form.list({
+      }));
+      const forms = await reading(info.id, () => client.session.form.list({
         sessionID: info.id
       }, {
         signal
-      });
+      }));
       signal.throwIfAborted();
       for (const message of messages) if (message.type === "assistant") for (const tool of message.content) {
         if (tool.type !== "tool" || tool.state.status !== "streaming" && tool.state.status !== "running") continue;

@@ -18,7 +18,8 @@ export default Plugin.define({
   id: "subagent-sidebar",
   setup(context) {
     const [revision, setRevision] = createSignal(0);
-    const [memory] = context.storage.memory("trees", {
+    // 内存键随投影结构升级，避免沿用旧 class 实例的历史展示方法。
+    const [memory] = context.storage.memory("trees-active-v1", {
       initial: {
         trees: new Map()
       }

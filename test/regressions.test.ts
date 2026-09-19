@@ -55,7 +55,7 @@ test("P1 父未返回前收到 refresh，提交后保留补读；漏枚举 child
   }
   let finishEnabled = false
   const finished = deferred<void>()
-  const controller = new Controller(api, () => { if (finishEnabled) finished.resolve() }, () => 10)
+  const controller = new Controller(api, () => { if (finishEnabled && controller.state === "ready") finished.resolve() }, () => 10)
   const loading = controller.select("root")
   await reached.promise
   api.emit({ kind: "refresh", sessionID: "root" })
@@ -75,6 +75,8 @@ test("P1 pending link 在 child/祖先出现后激活，不依赖额外工具事
   current.associate(link("a"))
   assert.equal(current.rows().length, 0)
   current.event({ kind: "created", id: "create", sessionID: "a", at: 20, info: { id: "a", parentID: "root" } })
+  assert.equal(current.rows().length, 0)
+  current.event(event("start", "a", 21))
   assert.equal(current.rows()[0].id, "a")
 })
 
@@ -118,14 +120,15 @@ test("P2 shutdown 仅在没有新 idle 证据时保留原轮次", () => {
   assert.equal(current.rows()[0].started, 300)
 })
 
-test("P3 已访问空树刷新发现新结束 child，按访问边界收入历史", async () => {
+test("P3 已访问空树刷新发现新结束 child，只保留内部轮次", async () => {
   const api = new FakeSource().add(snapshot("root"))
   const controller = new Controller(api, () => {}, () => 10)
   await controller.select("root")
   api.add(snapshot("root", undefined, { links: [link("a")] }), task("a", "root", { info: { id: "a", parentID: "root", idle: 30, outcome: "succeeded" } }))
   await controller.refresh()
-  assert.equal(controller.current!.rows()[0].status, "成功")
-  assert.equal(controller.current!.rows()[0].ended, 30)
+  assert.deepEqual(controller.current!.rows(), [])
+  assert.equal(controller.current!.nodes.get("a")!.round.outcome, "succeeded")
+  assert.equal(controller.current!.nodes.get("a")!.round.ended, 30)
   controller.dispose()
   const initial = new Controller(api, () => {}, () => 10)
   await initial.select("root")
@@ -192,11 +195,13 @@ test("P5 十万轮仅保存序列水位，旧 start/end 重放和重复终态不
     current.event({ ...end("a", i * 10 + 11), seq: i * 2 + 1 })
   }
   assert.ok(current.nodes.get("a")!.order.retainedIDs <= 64)
-  const last = current.rows()[0]
+  assert.deepEqual(current.rows(), [])
+  const last = structuredClone(current.nodes.get("a")!.round)
   current.event({ ...event("start", "a", 20), seq: 2 })
   current.event({ ...end("a", 21), seq: 3 })
   current.event({ ...end("a", 1_000_011), seq: 200_001 })
-  assert.deepEqual(current.rows()[0], last)
+  assert.deepEqual(current.nodes.get("a")!.round, last)
+  assert.deepEqual(current.rows(), [])
   current.event({ ...event("start", "a", 1_000_020), seq: 200_002 })
   current.event({ ...end("a", 1_000_011), seq: 200_001 })
   assert.equal(current.rows()[0].status, "运行中")
@@ -215,11 +220,12 @@ test("P5 缓冲未知会话的十万轮被压缩为最新轮；回放幂等并�
   current.snapshot(snapshot("root"), 0)
   current.associate(link("a"))
   journal.drain(current)
-  assert.equal(current.rows()[0].started, 1_000_010)
-  assert.equal(current.rows()[0].ended, 1_000_011)
+  assert.deepEqual(current.rows(), [])
+  assert.equal(current.nodes.get("a")!.round.started, 1_000_010)
+  assert.equal(current.nodes.get("a")!.round.ended, 1_000_011)
   assert.equal(journal.size, 0)
   journal.drain(current)
-  assert.equal(current.rows()[0].started, 1_000_010)
+  assert.equal(current.nodes.get("a")!.round.started, 1_000_010)
 })
 
 test("P5 durable 同毫秒 distinct start 按 seq 分轮，fallback 旧事件不破坏当前轮", () => {
@@ -233,14 +239,15 @@ test("P5 durable 同毫秒 distinct start 按 seq 分轮，fallback 旧事件不
     fallback.event(event("start", "a", i * 10 + 20))
     fallback.event(end("a", i * 10 + 21))
   }
-  const latest = fallback.rows()[0]
+  const latest = structuredClone(fallback.nodes.get("a")!.round)
   fallback.event(event("start", "a", 30))
   fallback.event(end("a", 31))
-  assert.deepEqual(fallback.rows()[0], latest)
+  assert.deepEqual(fallback.nodes.get("a")!.round, latest)
+  assert.deepEqual(fallback.rows(), [])
   assert.ok(fallback.nodes.get("a")!.order.retainedIDs <= 64)
 })
 
-test("P5 被历史上限移除的终态不因重复事件复活，热重载保留序列水位", async () => {
+test("P5 终态隐藏不因重放复活，同 schema 热重载保留序列水位和编号", async () => {
   const retained = new Map<string, Tree>()
   const api = source()
   const first = new Controller(api, () => {}, () => 10, retained)
@@ -252,7 +259,8 @@ test("P5 被历史上限移除的终态不因重复事件复活，热重载保�
   const next = new Controller(api, () => {}, () => 10, retained)
   await next.select("root")
   api.emit({ ...event("start", "a", 20), seq: 10 })
-  assert.equal(next.current!.rows()[0].status, "成功")
+  assert.deepEqual(next.current!.rows(), [])
+  assert.equal(next.current!.nodes.get("a")!.round.outcome, "succeeded")
   for (let i = 0; i < 3; i++) {
     const id = `new${i}`
     next.current!.snapshot(task(id), 0)
@@ -262,6 +270,10 @@ test("P5 被历史上限移除的终态不因重复事件复活，热重载保�
   assert.equal(next.current!.rows().some(row => row.id === "a"), false)
   api.emit({ ...end("a", 30), seq: 11 })
   assert.equal(next.current!.rows().some(row => row.id === "a"), false)
+  const number = next.current!.nodes.get("a")!.number
+  api.emit({ ...event("start", "a", 50), seq: 12 })
+  assert.equal(next.current!.rows()[0].number, number)
+  assert.equal(next.current!.rows()[0].started, 50)
   next.dispose()
 })
 

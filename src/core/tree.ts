@@ -6,7 +6,6 @@ interface Round {
   started?: number
   ended?: number
   outcome?: Outcome
-  history: boolean
   baselineIdle?: number
   assistant?: Assistant
   retryAt?: number
@@ -21,12 +20,10 @@ interface Node {
   revision: number
   hydrated: boolean
   lifecycleObserved: boolean
-  baselineOnly: boolean
   order: EventOrder
   eventFloor: number
 }
 const compareID = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-const terminalLabel = { succeeded: "成功", failed: "失败", interrupted: "中断" }
 
 export class Tree {
   readonly nodes = new Map<string, Node>()
@@ -36,13 +33,15 @@ export class Tree {
   private pendingLinks = new Map<string, Link>()
   private syncRequests = new Set<string>()
   private unverified = new Set<string>()
+  readonly invalidScopes = new Set<string>()
+  invalidAll = false
   initialized = false
   constructor(readonly rootID: string, readonly visitedAt: number) {}
 
   private ensure(info: Info): Node {
     let node = this.nodes.get(info.id)
     if (!node) {
-      node = { info, number: info.id === this.rootID ? "根" : String(this.nextNumber++).padStart(2, "0"), round: { phase: "unknown", history: false }, permissions: new Set(), forms: new Set(), revision: 0, hydrated: false, lifecycleObserved: false, baselineOnly: !this.initialized, order: new EventOrder(), eventFloor: -Infinity }
+      node = { info, number: info.id === this.rootID ? "根" : String(this.nextNumber++).padStart(2, "0"), round: { phase: "unknown" }, permissions: new Set(), forms: new Set(), revision: 0, hydrated: false, lifecycleObserved: false, order: new EventOrder(), eventFloor: -Infinity }
       this.nodes.set(info.id, node)
       const link = this.pendingLinks.get(info.id)
       if (link) { this.pendingLinks.delete(info.id); this.associate(link) }
@@ -70,6 +69,22 @@ export class Tree {
     if (node) node.revision++
   }
   requiresValidation() { return this.unverified.size > 0 }
+  unverify(id: string) { if (!this.deleted(id)) this.unverified.add(id) }
+  within(id: string, scope: string): boolean {
+    const seen = new Set<string>()
+    while (!seen.has(id)) {
+      if (id === scope) return true
+      seen.add(id)
+      const parent = this.nodes.get(id)?.info.parentID ?? this.pendingLinks.get(id)?.parentID
+      if (!parent) return false
+      id = parent
+    }
+    return false
+  }
+  invalid(id: string) { return this.invalidAll || [...this.invalidScopes, ...this.unverified].some(scope => this.within(id, scope)) }
+  recover(scope: string, covered: Set<string>) {
+    for (const id of this.invalidScopes) if ((covered.has(id) && this.within(id, scope)) || this.deleted(id)) this.invalidScopes.delete(id)
+  }
   takeSyncRequests() { const ids = [...this.syncRequests]; this.syncRequests.clear(); return ids }
   missing(id: string) { if (this.nodes.has(id) || this.pendingLinks.has(id)) this.remove(id) }
   discover(info: Info) {
@@ -90,6 +105,7 @@ export class Tree {
       this.pendingLinks.delete(current)
       this.syncRequests.delete(current)
       this.unverified.delete(current)
+      this.invalidScopes.delete(current)
     }
   }
 
@@ -123,7 +139,7 @@ export class Tree {
     const idleAdvanced = idle !== undefined && idle > (round.baselineIdle ?? -Infinity)
     if (snapshot.running) {
       if (round.phase === "ended" || (!fresh && idleAdvanced && (round.started === undefined || idle >= round.started))) {
-        node.round = { phase: "running", history: false, baselineIdle: idle }
+        node.round = { phase: "running", baselineIdle: idle }
         node.permissions = new Set(snapshot.permissions)
         node.forms = new Set(snapshot.forms)
       }
@@ -131,24 +147,24 @@ export class Tree {
       node.round.assistant = snapshot.assistant
       node.round.retryAt = snapshot.assistant?.retryAt
     } else if (fresh) {
-      // 首次访问整棵树只建立基线；已访问树中新发现的结束记录按访问边界补入。
+      // 终态只建立内部基线，保留轮次与重放保护，不参与展示。
       round.phase = snapshot.info.outcome ? "ended" : "unknown"
       round.outcome = snapshot.info.outcome
       round.ended = idle
       round.assistant = snapshot.assistant
-      round.history = !node.baselineOnly && !!snapshot.info.outcome && idle !== undefined && idle > this.visitedAt
     } else if (snapshot.info.outcome && idle !== undefined && idle > (round.baselineIdle ?? -Infinity) && idle >= this.visitedAt && (round.started === undefined || idle >= round.started)) {
       // 已访问树在断线期间可能完整跑过新一轮；新的 idle 才是新结束证据。
-      const completed = round.phase === "ended" ? (node.round = { phase: "ended", history: true }) : round
+      const completed = round.phase === "ended" ? (node.round = { phase: "ended" }) : round
       completed.phase = "ended"
       completed.outcome = snapshot.info.outcome
       completed.ended = idle
-      completed.history = true
       completed.retryAt = undefined
+      completed.shutdown = false
       completed.assistant = snapshot.assistant ?? completed.assistant
-    } else if (round.phase === "running" && !round.shutdown) {
+    } else if (round.phase === "running") {
       round.phase = "unknown"
     }
+    if (!snapshot.running) node.round.retryAt = node.round.phase !== "ended" && !node.round.shutdown ? snapshot.assistant?.retryAt : undefined
     node.round.baselineIdle = Math.max(node.round.baselineIdle ?? -Infinity, idle ?? -Infinity)
     if (this.initialized && idle !== undefined) node.eventFloor = Math.max(node.eventFloor, idle)
     return true
@@ -178,7 +194,7 @@ export class Tree {
     switch (event.kind) {
       case "start":
         if (!round.shutdown) {
-          node.round = { phase: "running", started: event.at, history: false, baselineIdle: node.info.idle }
+          node.round = { phase: "running", started: event.at, baselineIdle: node.info.idle }
           node.permissions.clear()
           node.forms.clear()
           node.order.reconcileRequests(node.permissions, node.forms)
@@ -195,9 +211,9 @@ export class Tree {
         break
       case "end":
         if (event.at < this.visitedAt) break
-        if (round.ended !== undefined && (event.at < round.ended || (event.at === round.ended && round.history))) break
+        if (round.ended !== undefined && event.at <= round.ended) break
         if (round.started !== undefined && event.at < round.started) break
-        Object.assign(round, { phase: "ended", ended: event.at, baselineIdle: event.at, outcome: event.outcome, history: true, retryAt: undefined, shutdown: false })
+        Object.assign(round, { phase: "ended", ended: event.at, baselineIdle: event.at, outcome: event.outcome, retryAt: undefined, shutdown: false })
         node.info.idle = event.at
         node.info.outcome = event.outcome
         node.permissions.clear()
@@ -205,7 +221,7 @@ export class Tree {
         node.order.reconcileRequests(node.permissions, node.forms)
         break
       case "step":
-        if (round.phase === "ended" && event.at > (round.ended ?? -Infinity)) node.round = { phase: "running", history: false, baselineIdle: node.info.idle }
+        if (round.phase === "ended" && event.at > (round.ended ?? -Infinity)) node.round = { phase: "running", baselineIdle: node.info.idle }
         if (node.round.phase !== "ended") node.round.phase = "running"
         node.round.assistant = event.assistant
         node.round.retryAt = undefined
@@ -224,29 +240,19 @@ export class Tree {
     }
   }
 
-  prune() {
-    const ended = [...this.nodes.values()].filter(node => this.links.has(node.info.id) && node.round.phase === "ended" && node.round.history)
-      .sort((a, b) => (b.round.ended ?? -Infinity) - (a.round.ended ?? -Infinity) || compareID(a.info, b.info))
-    for (const node of ended.slice(3)) node.round.history = false
-  }
-
   rows(_now?: number): Row[] {
-    this.prune()
-    const rows = [...this.nodes.values()].filter(node => this.connected(node.info.id) && this.links.has(node.info.id) && (node.round.phase !== "ended" || node.round.history))
+    const rows = [...this.nodes.values()].filter(node => this.connected(node.info.id) && this.links.has(node.info.id) && !this.invalid(node.info.id) &&
+      node.round.phase !== "ended" && (node.round.phase === "running" || (!node.round.shutdown &&
+        (node.permissions.size > 0 || node.forms.size > 0 || node.round.retryAt !== undefined))))
     rows.sort((a, b) => {
-      if (a.round.phase === "ended" && b.round.phase !== "ended") return 1
-      if (a.round.phase !== "ended" && b.round.phase === "ended") return -1
-      const time = a.round.phase === "ended"
-        ? (b.round.ended ?? -Infinity) - (a.round.ended ?? -Infinity)
-        : (a.round.started ?? Infinity) - (b.round.started ?? Infinity)
+      const time = (a.round.started ?? Infinity) - (b.round.started ?? Infinity)
       return time || compareID(a.info, b.info)
     })
     return rows.map(node => {
       const { round, info } = node
-      const status = round.phase === "ended" ? terminalLabel[round.outcome!]
-        : node.permissions.size ? "待授权" : node.forms.size ? "待输入"
+      const status = node.permissions.size ? "待授权" : node.forms.size ? "待输入"
         : round.retryAt !== undefined ? "重试等待"
-        : round.phase === "running" ? "运行中" : "未确认"
+        : "运行中"
       return {
         id: info.id, number: node.number,
         parent: info.parentID && info.parentID !== this.rootID ? this.nodes.get(info.parentID)?.number ?? "?" : undefined,

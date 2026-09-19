@@ -13,7 +13,8 @@ export default Plugin.define({
   id: "subagent-sidebar",
   setup(context) {
     const [revision, setRevision] = createSignal(0)
-    const [memory] = context.storage.memory("trees", { initial: { trees: new Map<string, Tree>() } })
+    // 内存键随投影结构升级，避免沿用旧 class 实例的历史展示方法。
+    const [memory] = context.storage.memory("trees-active-v1", { initial: { trees: new Map<string, Tree>() } })
     const controller = new Controller(source208(context), () => setRevision(value => value + 1), Date.now, memory.trees)
     const [now, setNow] = createSignal(Date.now())
     // 只刷新本地时长，不进行网络轮询。

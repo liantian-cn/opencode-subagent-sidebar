@@ -132,7 +132,7 @@ test("最终 P2 首次 hydration 前 rename/agent/model 事件不改变旧终态
     }
     const done = deferred<void>()
     let finishing = false
-    const controller = new Controller(api, () => { if (finishing) done.resolve() }, () => 10)
+    const controller = new Controller(api, () => { if (finishing && controller.state === "ready") done.resolve() }, () => 10)
     const loading = controller.select("root")
     await reached.promise
     api.emit({ kind: "info", id: "metadata", sessionID: "a", at: 20, seq: 2, info })
@@ -162,7 +162,8 @@ test("最终 P2 初始 metadata 竞争延迟基线仍不追溯；真正 start/en
   assert.equal(initial.rows().some(row => row.id === "old"), false)
   initial.event({ ...event("start", "old", 50), seq: 6 })
   initial.event({ ...end("old", 60), seq: 7 })
-  assert.equal(initial.rows().find(row => row.id === "old")!.ended, 60)
+  assert.equal(initial.rows().some(row => row.id === "old"), false)
+  assert.equal(initial.nodes.get("old")!.round.ended, 60)
 })
 
 test("最终 P3 跨 permission/form 及两个 permission 的迟到回复均按各自身份处理", () => {
@@ -267,7 +268,7 @@ test("最终 P2 metadata 与真实 start/end 同时超过首次旧快照，补�
   api.gate = async info => { if (info.id === "a") { reached.resolve(); return gate.promise } return api.snapshots.get(info.id)! }
   let watch = false
   const done = deferred<void>()
-  const controller = new Controller(api, () => { if (watch) done.resolve() }, () => 10)
+  const controller = new Controller(api, () => { if (watch && controller.state === "ready") done.resolve() }, () => 10)
   const loading = controller.select("root")
   await reached.promise
   api.emit({ kind: "info", id: "rename", sessionID: "a", at: 20, seq: 2, info: { title: "新任务" } })
@@ -275,15 +276,17 @@ test("最终 P2 metadata 与真实 start/end 同时超过首次旧快照，补�
   api.emit({ ...end("a", 40), seq: 4 })
   gate.resolve(old)
   await loading
-  assert.equal(controller.current!.rows()[0].started, 30)
-  assert.equal(controller.current!.rows()[0].ended, 40)
+  assert.deepEqual(controller.current!.rows(), [])
+  assert.equal(controller.current!.nodes.get("a")!.round.started, 30)
+  assert.equal(controller.current!.nodes.get("a")!.round.ended, 40)
   api.gate = undefined
   api.add(task("a", "root", { info: { id: "a", parentID: "root", idle: 40, outcome: "succeeded" } }))
   watch = true
   context.mock.timers.tick(150)
   await done.promise
-  assert.equal(controller.current!.rows()[0].started, 30)
-  assert.equal(controller.current!.rows()[0].ended, 40)
+  assert.deepEqual(controller.current!.rows(), [])
+  assert.equal(controller.current!.nodes.get("a")!.round.started, 30)
+  assert.equal(controller.current!.nodes.get("a")!.round.ended, 40)
   controller.dispose()
 })
 

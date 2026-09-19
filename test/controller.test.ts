@@ -21,7 +21,7 @@ test("递归分页、逐级祖先补齐，不能依赖 family 缓存", async () 
   await assert.rejects(pages(async () => ({ data: [], next: "same" }), signal()), /游标重复/)
 })
 
-test("先订阅后快照；加载中先 start/end，最终快照已经结束仍计入本次历史", async () => {
+test("先订阅后快照；加载中 start/end 隐藏终态但保留本轮，竞争快照不能判 ready", async () => {
   const source = fixture()
   const gate = deferred<Snapshot>()
   const reached = deferred<void>()
@@ -37,13 +37,13 @@ test("先订阅后快照；加载中先 start/end，最终快照已经结束仍�
   source.emit(end("a", 30))
   gate.resolve(task("a", "root", { info: { id: "a", parentID: "root", outcome: "succeeded", idle: 30 } }))
   await loading
-  assert.equal(controller.state, "ready")
-  assert.equal(controller.current!.rows(50)[0].status, "成功")
-  assert.equal(controller.current!.rows(50)[0].started, 20)
+  assert.equal(controller.state, "loading")
+  assert.deepEqual(controller.current!.rows(50), [])
+  assert.equal(controller.current!.nodes.get("a")!.round.started, 20)
   controller.dispose()
 })
 
-test("首次快照期间只观察到结束也保留；重启新 controller 不恢复", async () => {
+test("首次快照期间只观察到结束保留内部证据；重启也不显示终态", async () => {
   const source = fixture()
   const gate = deferred<Snapshot>()
   const reached = deferred<void>()
@@ -59,8 +59,9 @@ test("首次快照期间只观察到结束也保留；重启新 controller 不�
   const done = task("a", "root", { info: { id: "a", parentID: "root", outcome: "succeeded", idle: 30 } })
   gate.resolve(done)
   await loading
-  assert.equal(controller.current!.rows(50).length, 1)
-  assert.equal(controller.current!.rows(50)[0].started, undefined)
+  assert.equal(controller.current!.rows(50).length, 0)
+  assert.equal(controller.current!.nodes.get("a")!.round.started, undefined)
+  assert.equal(controller.current!.nodes.get("a")!.round.ended, 30)
   controller.dispose()
   source.gate = undefined
   source.add(done)
@@ -82,11 +83,13 @@ test("跨 child 保持同树编号，跨 root 不串数据，离开后仍监听�
   await controller.select("other")
   assert.equal(controller.current!.rootID, "other")
   source.emit(end("a", 60))
-  assert.equal(original.rows(70)[0].status, "成功")
+  assert.deepEqual(original.rows(70), [])
   source.add(task("a", "root", { info: { id: "a", parentID: "root", outcome: "succeeded", idle: 60 } }))
   await controller.select("a")
   assert.equal(controller.current, original)
-  assert.equal(controller.current!.rows(70)[0].number, number)
+  assert.deepEqual(controller.current!.rows(70), [])
+  source.emit(event("start", "a", 80))
+  assert.equal(controller.current!.rows(90)[0].number, number)
   controller.dispose()
 })
 
@@ -120,7 +123,7 @@ test("快速切换/卸载 abort 请求，晚到响应无写回，订阅仅清理
   assert.equal(source.requests.length, requestCount)
 })
 
-test("加载失败与未加载不是空态；刷新失败保留数据并标记过期", async () => {
+test("加载失败与未加载不是健康空态；全量失败隐藏数据并标记过期", async () => {
   const source = fixture()
   const controller = new Controller(source, () => {}, () => 10)
   await controller.select("missing")
@@ -129,7 +132,8 @@ test("加载失败与未加载不是空态；刷新失败保留数据并标记�
   source.gate = async () => { throw new Error("测试网络故障") }
   await controller.refresh()
   assert.equal(controller.state, "stale")
-  assert.equal(controller.current!.rows(20).length, 1)
+  assert.equal(controller.current!.rows(20).length, 0)
+  assert.equal(controller.current!.nodes.has("a"), true)
   controller.dispose()
 })
 
@@ -150,9 +154,9 @@ test("重新校准期间的 end 覆盖旧 running 快照；重连不重置本轮
   source.emit(end("a", 40))
   gate.resolve(task("a", "root", { running: true }))
   await loading
-  assert.equal(controller.current!.rows(50)[0].status, "成功")
-  assert.equal(controller.current!.rows(50)[0].started, 20)
-  assert.equal(controller.current!.rows(50)[0].ended, 40)
+  assert.deepEqual(controller.current!.rows(50), [])
+  assert.equal(controller.current!.nodes.get("a")!.round.started, 20)
+  assert.equal(controller.current!.nodes.get("a")!.round.ended, 40)
   controller.dispose()
 })
 
@@ -210,7 +214,8 @@ test("首次读取被重连替换时保留已观察到的起点和结束事件",
   await controller.refresh()
   gate.resolve(source.snapshots.get("a")!)
   await loading
-  assert.equal(controller.current!.rows(50)[0].started, 20)
-  assert.equal(controller.current!.rows(50)[0].ended, 40)
+  assert.deepEqual(controller.current!.rows(50), [])
+  assert.equal(controller.current!.nodes.get("a")!.round.started, 20)
+  assert.equal(controller.current!.nodes.get("a")!.round.ended, 40)
   controller.dispose()
 })
