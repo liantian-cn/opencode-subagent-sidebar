@@ -1,7 +1,7 @@
 {
   "name": "opencode-subagent-sidebar",
   "version": "0.1.4",
-  "description": "Read-only subagent tree sidebar and panel for OpenCode v2.0.8",
+  "description": "Read-only active subagent sidebar using the OpenCode v2.0.8 host cache",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -15,7 +15,7 @@
     "compile": "node scripts/compile.mjs",
     "compile:check": "node scripts/compile.mjs --check",
     "check": "tsc --noEmit",
-    "test": "npm run compile:check && tsc -p tsconfig.test.json && node --experimental-vm-modules --test .test-build/test/*.test.js test/*.test.mjs"
+    "test": "npm run compile:check && node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('.test-build', { recursive: true, force: true })\" && tsc -p tsconfig.test.json && node --experimental-vm-modules --test .test-build/test/*.test.js test/*.test.mjs"
   },
   "dependencies": {
     "@opencode/plugin": "2.0.8",
